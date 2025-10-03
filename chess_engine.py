@@ -179,10 +179,9 @@ def draw_banners():
             pos = (RIGHT_ANCHOR[0] + 180, TOP_BANNER - 32)
         screen.blit(check_font.render("- CHECK!", True, ACCENT), pos)
 
-    # Small restart hint centered at the very bottom when game is over
-    if game_over:
-        hint = turn_font.render("Press R to play again", True, (200, 200, 200))
-        screen.blit(hint, (WIN_W // 2 - hint.get_width() // 2, WIN_H - 30))
+    # Always show keystroke hints centered at the bottom
+    hint = turn_font.render("Press Q to quit    |    Press R to reset board", True, (180, 180, 180))
+    screen.blit(hint, (WIN_W // 2 - hint.get_width() // 2, WIN_H - 24))
 
 
 
