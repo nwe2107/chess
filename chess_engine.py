@@ -4,6 +4,7 @@ import pygame
 import chess
 
 # -------------------- Config --------------------
+COORD_PAD = 18   # space around each board for file/rank labels
 BOARD_SIZE = 8
 SQ = 72
 PADDING = 18
@@ -11,8 +12,8 @@ GAP_BETWEEN = 28
 TOP_BANNER = 42
 BOTTOM_BANNER = 84
 
-W_BOARD = BOARD_SIZE * SQ
-H_BOARD = BOARD_SIZE * SQ
+W_BOARD = BOARD_SIZE * SQ + 2 * COORD_PAD
+H_BOARD = BOARD_SIZE * SQ + 2 * COORD_PAD
 WIN_W = (PADDING * 2) + W_BOARD + GAP_BETWEEN + W_BOARD
 WIN_H = TOP_BANNER + H_BOARD + BOTTOM_BANNER
 
@@ -38,6 +39,8 @@ title_font = pygame.font.SysFont(None, 30, bold=True)
 turn_font  = pygame.font.SysFont(None, 28, bold=True)
 banner_font = pygame.font.SysFont(None, 36, bold=True)
 check_font  = pygame.font.SysFont(None, 30, bold=True)
+coord_font  = pygame.font.SysFont(None, 16, bold=True)
+COORD_COLOR = (200, 200, 200)
 
 LEFT_ANCHOR  = (PADDING, TOP_BANNER)
 RIGHT_ANCHOR = (PADDING + W_BOARD + GAP_BETWEEN, TOP_BANNER)
@@ -102,7 +105,7 @@ def draw_board(anchor, flipped=False):
             rr = r if not flipped else (BOARD_SIZE - 1 - r)
             cc = c if not flipped else (BOARD_SIZE - 1 - c)
             color = LIGHT if (rr + cc) % 2 == 0 else DARK
-            rect = pygame.Rect(ax + c * SQ, ay + r * SQ, SQ, SQ)
+            rect = pygame.Rect(ax + c * SQ + COORD_PAD, ay + r * SQ + COORD_PAD, SQ, SQ)
             pygame.draw.rect(screen, color, rect)
 
     # last move highlight
@@ -110,14 +113,14 @@ def draw_board(anchor, flipped=False):
         for sq in (last_move.from_square, last_move.to_square):
             rr, cc = (rc_from_square_for_white_view(sq) if not flipped
                       else rc_from_square_for_black_view(sq))
-            rect = pygame.Rect(ax + cc * SQ, ay + rr * SQ, SQ, SQ)
+            rect = pygame.Rect(ax + COORD_PAD + cc * SQ, ay + COORD_PAD + rr * SQ, SQ, SQ)
             pygame.draw.rect(screen, HILITE, rect, width=3)
 
     # selected
     if selected_sq is not None:
         rr, cc = (rc_from_square_for_white_view(selected_sq) if not flipped
                   else rc_from_square_for_black_view(selected_sq))
-        rect = pygame.Rect(ax + cc * SQ, ay + rr * SQ, SQ, SQ)
+        rect = pygame.Rect(ax + COORD_PAD + cc * SQ, ay + COORD_PAD + rr * SQ, SQ, SQ)
         pygame.draw.rect(screen, HILITE, rect, width=4)
 
     # legal targets dots
@@ -125,9 +128,10 @@ def draw_board(anchor, flipped=False):
         for tsq in legal_targets:
             rr, cc = (rc_from_square_for_white_view(tsq) if not flipped
                       else rc_from_square_for_black_view(tsq))
-            cx = ax + cc * SQ + SQ // 2
-            cy = ay + rr * SQ + SQ // 2
+            cx = ax + COORD_PAD + cc * SQ + SQ // 2
+            cy = ay + COORD_PAD + rr * SQ + SQ // 2
             pygame.draw.circle(screen, DOT, (cx, cy), max(6, SQ // 10))
+
 
 def draw_pieces(anchor, flipped=False):
     ax, ay = anchor
@@ -137,8 +141,8 @@ def draw_pieces(anchor, flipped=False):
             continue
         rr, cc = (rc_from_square_for_white_view(sq) if not flipped
                   else rc_from_square_for_black_view(sq))
-        x = ax + cc * SQ
-        y = ay + rr * SQ
+        x = ax + COORD_PAD + cc * SQ
+        y = ay + COORD_PAD + rr * SQ
         img = PIECES[(piece.piece_type, piece.color)]
         if img:
             screen.blit(img, (x, y))
@@ -149,6 +153,31 @@ def draw_pieces(anchor, flipped=False):
             surf = turn_font.render(letter, True, color)
             rect = surf.get_rect(center=(x+SQ//2, y+SQ//2))
             screen.blit(surf, rect)
+
+def draw_coords(anchor, flipped=False):
+    """Draw file letters along the bottom edge squares and rank numbers on the left edge squares,
+    respecting the board orientation (flipped for black). Labels are drawn inside the edge squares
+    so we don't need extra window padding."""
+    ax, ay = anchor
+
+    files = "abcdefgh" if not flipped else "hgfedcba"
+    ranks = "87654321" if not flipped else "12345678"
+
+    # Files (below the bottom row)
+    for c in range(8):
+        ch = files[c].upper()
+        surf = coord_font.render(ch, True, COORD_COLOR)
+        rect = surf.get_rect(center=(ax + COORD_PAD + c * SQ + SQ//2,
+                                     ay + H_BOARD - COORD_PAD//2))
+        screen.blit(surf, rect)
+
+    # Ranks (left of the left column)
+    for r in range(8):
+        ch = ranks[r]
+        surf = coord_font.render(ch, True, COORD_COLOR)
+        rect = surf.get_rect(center=(ax + COORD_PAD//2,
+                                     ay + COORD_PAD + r * SQ + SQ//2))
+        screen.blit(surf, rect)
 
 def draw_banners():
     # titles
@@ -190,13 +219,13 @@ def board_click_to_square(pos):
     mx, my = pos
     lx, ly = LEFT_ANCHOR
     if lx <= mx < lx + W_BOARD and ly <= my < ly + H_BOARD:
-        c = (mx - lx) // SQ
-        r = (my - ly) // SQ
+        c = (mx - lx - COORD_PAD) // SQ
+        r = (my - ly - COORD_PAD) // SQ
         return square_from_rc_white_view(r, c)
     rx, ry = RIGHT_ANCHOR
     if rx <= mx < rx + W_BOARD and ry <= my < ry + H_BOARD:
-        c = (mx - rx) // SQ
-        r = (my - ry) // SQ
+        c = (mx - rx - COORD_PAD) // SQ
+        r = (my - ry - COORD_PAD) // SQ
         return square_from_rc_black_view(r, c)
     return None
 
@@ -353,6 +382,8 @@ def main():
         draw_board(RIGHT_ANCHOR, flipped=True)
         draw_pieces(LEFT_ANCHOR, flipped=False)
         draw_pieces(RIGHT_ANCHOR, flipped=True)
+        draw_coords(LEFT_ANCHOR, flipped=False)
+        draw_coords(RIGHT_ANCHOR, flipped=True)
         draw_banners()
 
 
