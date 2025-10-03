@@ -9,7 +9,7 @@ SQ = 72
 PADDING = 18
 GAP_BETWEEN = 28
 TOP_BANNER = 42
-BOTTOM_BANNER = 42
+BOTTOM_BANNER = 84
 
 W_BOARD = BOARD_SIZE * SQ
 H_BOARD = BOARD_SIZE * SQ
@@ -178,6 +178,11 @@ def draw_banners():
         else:
             pos = (RIGHT_ANCHOR[0] + 180, TOP_BANNER - 32)
         screen.blit(check_font.render("- CHECK!", True, ACCENT), pos)
+
+    # Small restart hint centered at the very bottom when game is over
+    if game_over:
+        hint = turn_font.render("Press R to play again", True, (200, 200, 200))
+        screen.blit(hint, (WIN_W // 2 - hint.get_width() // 2, WIN_H - 30))
 
 
 
