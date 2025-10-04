@@ -2,6 +2,9 @@
 import os, sys
 import pygame
 import chess
+import sqlite3
+from datetime import datetime
+
 
 # -------------------- Config --------------------
 COORD_PAD = 18   # space around each board for file/rank labels
@@ -30,6 +33,7 @@ PANEL_EDGE = (30, 30, 30)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(HERE, "assets")
+DB_PATH = os.path.join(HERE, "results.db")
 
 # -------------------- Pygame init --------------------
 pygame.init()
@@ -53,6 +57,10 @@ last_move = None
 game_over = False
 left_banner  = ""  # shows YOU WON / YOU LOST / DRAW
 right_banner = ""
+
+# -------------------- UI state --------------------
+show_scoreboard = False
+last_close_rect = None
 
 # -------------------- Assets --------------------
 def load_images(square_size):
@@ -209,7 +217,7 @@ def draw_banners():
         screen.blit(check_font.render("- CHECK!", True, ACCENT), pos)
 
     # Always show keystroke hints centered at the bottom
-    hint = turn_font.render("Press Q to quit    |    Press R to reset board", True, (180, 180, 180))
+    hint = turn_font.render("Press Q to quit    |    Press R to reset board    |    Press S to scoreboard", True, (180, 180, 180))
     screen.blit(hint, (WIN_W // 2 - hint.get_width() // 2, WIN_H - 24))
 
 
@@ -236,6 +244,173 @@ def update_legal_targets():
     for mv in board.legal_moves:
         if mv.from_square == selected_sq:
             legal_targets.add(mv.to_square)
+
+# -------------------- db helpers --------------------
+
+def db_init():
+    with sqlite3.connect(DB_PATH) as con:
+        con.executescript("""
+        CREATE TABLE IF NOT EXISTS results (
+          id          INTEGER PRIMARY KEY,
+          ts          TEXT NOT NULL,          -- ISO timestamp
+          result      TEXT NOT NULL,          -- CHECKMATE/STALEMATE/RESIGN/...
+          winner_col  TEXT,                   -- 'White'/'Black' or NULL on draw
+          loser_col   TEXT,                   -- 'Black'/'White' or NULL on draw
+          winner_name TEXT,
+          loser_name  TEXT,
+          move_count  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_results_players ON results(winner_name, loser_name);
+        CREATE INDEX IF NOT EXISTS idx_results_ts ON results(ts);
+        """)
+
+def db_insert(ts, result, winner_col, loser_col, winner_name, loser_name, move_count):
+    with sqlite3.connect(DB_PATH) as con:
+        con.execute(
+            """INSERT INTO results
+               (ts, result, winner_col, loser_col, winner_name, loser_name, move_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (ts, result, winner_col, loser_col, winner_name, loser_name, move_count)
+        )
+
+def db_fetch_recent(limit=12):
+    with sqlite3.connect(DB_PATH) as con:
+        return con.execute(
+            "SELECT ts, result, winner_col, loser_col, winner_name, loser_name, move_count "
+            "FROM results ORDER BY ts DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+def db_fetch_top(limit=8):
+    with sqlite3.connect(DB_PATH) as con:
+        return con.execute(
+            "SELECT winner_name, COUNT(*) AS wins "
+            "FROM results WHERE winner_name IS NOT NULL "
+            "GROUP BY winner_name ORDER BY wins DESC, winner_name ASC LIMIT ?", (limit,)
+        ).fetchall()
+
+
+# -------------------- Result prompt and scoreboard --------------------
+def prompt_save_result(result_label, winner_color):
+    """
+    Modal prompt to enter winner & loser names, then save to SQLite.
+    Controls: type text • TAB switches field • ENTER saves • ESC cancels
+    """
+    panel_w, panel_h = 560, 220
+    rect = pygame.Rect((WIN_W - panel_w)//2, (WIN_H - panel_h)//2, panel_w, panel_h)
+    field_w, field_h = 360, 40
+    gap_y = 64
+
+    winner_text, loser_text = "", ""
+    active = 0  # 0 winner, 1 loser
+    who_won = "White" if winner_color is chess.WHITE else ("Black" if winner_color is chess.BLACK else "—")
+    title = banner_font.render(f"Result: {result_label}", True, (20,20,20))
+    sub   = turn_font.render(f"Winner: {who_won}", True, (20,20,20))
+
+    while True:
+        overlay = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA); overlay.fill((0,0,0,160))
+        screen.blit(overlay, (0,0))
+
+        pygame.draw.rect(screen, (245,245,245), rect, border_radius=12)
+        pygame.draw.rect(screen, (40,40,40), rect, width=3, border_radius=12)
+        screen.blit(title, (rect.centerx - title.get_width()//2, rect.y + 12))
+        screen.blit(sub,   (rect.centerx - sub.get_width()//2,   rect.y + 54))
+
+        win_label = turn_font.render("Winner name:", True, (30,30,30))
+        screen.blit(win_label, (rect.x + 22, rect.y + 96))
+        win_box = pygame.Rect(rect.x + 170, rect.y + 92, field_w, field_h)
+        pygame.draw.rect(screen, (255,255,255), win_box, border_radius=8)
+        pygame.draw.rect(screen, (230,80,80) if active==0 else (120,120,120), win_box, width=2, border_radius=8)
+        screen.blit(turn_font.render(winner_text, True, (30,30,30)), (win_box.x + 10, win_box.y + 8))
+
+        lose_label = turn_font.render("Loser name:", True, (30,30,30))
+        screen.blit(lose_label, (rect.x + 22, rect.y + 96 + gap_y))
+        lose_box = pygame.Rect(rect.x + 170, rect.y + 92 + gap_y, field_w, field_h)
+        pygame.draw.rect(screen, (255,255,255), lose_box, border_radius=8)
+        pygame.draw.rect(screen, (230,80,80) if active==1 else (120,120,120), lose_box, width=2, border_radius=8)
+        screen.blit(turn_font.render(loser_text, True, (30,30,30)), (lose_box.x + 10, lose_box.y + 8))
+
+        foot = coord_font.render("TAB switch • ENTER save • ESC cancel", True, (60,60,60))
+        screen.blit(foot, (rect.centerx - foot.get_width()//2, rect.bottom - 26))
+
+        pygame.display.flip()
+
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT: pygame.quit(); sys.exit()
+            if e.type == pygame.KEYDOWN:
+                if e.key == pygame.K_ESCAPE: return
+                if e.key == pygame.K_TAB: active = 1 - active
+                elif e.key == pygame.K_RETURN:
+                    ts = datetime.now().isoformat(timespec="seconds")
+                    winner_col = "White" if winner_color is chess.WHITE else ("Black" if winner_color is chess.BLACK else None)
+                    loser_col  = "Black" if winner_color is chess.WHITE else ("White" if winner_color is chess.BLACK else None)
+                    db_insert(ts, result_label, winner_col, loser_col,
+                              winner_text.strip() or None, loser_text.strip() or None,
+                              len(board.move_stack))
+                    return
+                elif e.key == pygame.K_BACKSPACE:
+                    if active==0 and winner_text: winner_text = winner_text[:-1]
+                    elif active==1 and loser_text: loser_text = loser_text[:-1]
+                else:
+                    ch = e.unicode
+                    if ch and 32 <= ord(ch) <= 126:
+                        if active==0 and len(winner_text) < 30: winner_text += ch
+                        elif active==1 and len(loser_text) < 30: loser_text += ch
+
+
+def draw_scoreboard():
+    """Top overlay showing Top Players + Recent Games. Returns the close button rect."""
+    global last_close_rect
+    panel_h = int(WIN_H * 0.68)
+    rect = pygame.Rect(12, 8, WIN_W - 24, panel_h)
+
+    pygame.draw.rect(screen, (245,245,245), rect, border_radius=14)
+    pygame.draw.rect(screen, (40,40,40), rect, width=3, border_radius=14)
+
+    title = banner_font.render("Scoreboard", True, (20,20,20))
+    screen.blit(title, (rect.x + 16, rect.y + 10))
+
+    close_rect = pygame.Rect(rect.right - 46, rect.y + 10, 36, 28)
+    pygame.draw.rect(screen, (230,80,80), close_rect, border_radius=6)
+    xlbl = turn_font.render("X", True, (255,255,255))
+    screen.blit(xlbl, (close_rect.centerx - xlbl.get_width()//2, close_rect.centery - xlbl.get_height()//2))
+    last_close_rect = close_rect
+
+    recent = db_fetch_recent(12)
+    top    = db_fetch_top(10)
+
+    left_x  = rect.x + 20
+    right_x = rect.centerx + 20
+    y0 = rect.y + 54
+
+    h1 = turn_font.render("Top Players (wins)", True, (20,20,20))
+    screen.blit(h1, (left_x, y0))
+    y = y0 + 8 + h1.get_height()
+    row_font = pygame.font.SysFont(None, 22)
+    if top:
+        for i, (name, wins) in enumerate(top):
+            line = f"{i+1:>2}. {name or '(unknown)'} — {wins}"
+            screen.blit(row_font.render(line, True, (30,30,30)), (left_x, y + i*24))
+    else:
+        screen.blit(row_font.render("(no wins yet)", True, (120,120,120)), (left_x, y))
+
+    h2 = turn_font.render("Recent Games", True, (20,20,20))
+    screen.blit(h2, (right_x, y0))
+    y2 = y0 + 8 + h2.get_height()
+
+    small = pygame.font.SysFont(None, 20)
+    if recent:
+        for i, (ts, result, wcol, lcol, wname, lname, moves) in enumerate(recent):
+            label = f"{ts}  •  {result}"
+            if wcol:
+                label += f"  •  {wcol} ({wname or '?'}) beat {lcol} ({lname or '?'})"
+            else:
+                label += "  •  Draw"
+            label += f"  •  {moves} moves"
+            screen.blit(small.render(label, True, (40,40,40)), (right_x, y2 + i*22))
+    else:
+        screen.blit(small.render("(no games yet)", True, (120,120,120)), (right_x, y2))
+
+    return close_rect
 
 # -------------------- Promotion Picker --------------------
 def choose_promotion(color):
@@ -323,22 +498,22 @@ def update_game_state_after_move():
     """Check checkmate/stalemate and set banners accordingly."""
     global game_over, left_banner, right_banner
     if board.is_checkmate():
-        # side to move is mated
         if board.turn == chess.WHITE:
-            # White to move but mated -> Black delivered mate
-            left_banner  = "YOU LOST – CHECKMATE"
-            right_banner = "YOU WON – CHECKMATE"
+            left_banner, right_banner = "YOU LOST – CHECKMATE", "YOU WON – CHECKMATE"
+            winner = chess.BLACK
         else:
-            left_banner  = "YOU WON – CHECKMATE"
-            right_banner = "YOU LOST – CHECKMATE"
+            left_banner, right_banner = "YOU WON – CHECKMATE", "YOU LOST – CHECKMATE"
+            winner = chess.WHITE
         game_over = True
+        prompt_save_result("CHECKMATE", winner)
     elif board.is_stalemate():
         left_banner = right_banner = "DRAW – STALEMATE"
         game_over = True
+        prompt_save_result("STALEMATE", None)
 
 # -------------------- Main loop --------------------
 def main():
-    global selected_sq, legal_targets, board, game_over, left_banner, right_banner
+    global selected_sq, legal_targets, board, game_over, left_banner, right_banner, show_scoreboard, last_close_rect
     clock = pygame.time.Clock()
 
     while True:
@@ -354,6 +529,17 @@ def main():
                     legal_targets = set()
                     game_over = False
                     left_banner = right_banner = ""
+                if e.key == pygame.K_s:
+                    show_scoreboard = not show_scoreboard
+                    continue
+                if show_scoreboard and e.key == pygame.K_ESCAPE:
+                    show_scoreboard = False
+                    continue
+
+            if show_scoreboard and e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+                if last_close_rect and last_close_rect.collidepoint(e.pos):
+                    show_scoreboard = False
+                continue
 
             if not game_over and e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
                 sq = board_click_to_square(e.pos)
@@ -385,10 +571,14 @@ def main():
         draw_coords(LEFT_ANCHOR, flipped=False)
         draw_coords(RIGHT_ANCHOR, flipped=True)
         draw_banners()
+        if show_scoreboard:
+            last_close_rect = draw_scoreboard()
 
 
         pygame.display.flip()
         clock.tick(60)
 
 if __name__ == "__main__":
+    db_init()
+
     main()
