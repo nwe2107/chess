@@ -58,6 +58,10 @@ game_over = False
 left_banner  = ""  # shows YOU WON / YOU LOST / DRAW
 right_banner = ""
 
+# Captured pieces tracking
+captured_white = []  # White pieces that got captured
+captured_black = []  # Black pieces that got captured
+
 # -------------------- UI state --------------------
 show_scoreboard = False
 last_close_rect = None
@@ -106,6 +110,33 @@ def rc_from_square_for_black_view(sq):
     return (r, 7 - f)
 
 # -------------------- Draw functions --------------------
+TRAY_ICON = 24
+TRAY_GAP  = 4
+
+piece_rank = {chess.PAWN:0, chess.KNIGHT:1, chess.BISHOP:1, chess.ROOK:2, chess.QUEEN:3}
+
+def draw_captured_trays():
+    # ---- Eliminated WHITE pieces (captured by Black) ----
+    # Show above the Black board, inside TOP_BANNER
+    x = RIGHT_ANCHOR[0] + COORD_PAD
+    y = 30  # fits under your "YOU ARE BLACK" title; bump if needed
+    for ptype in sorted(captured_white, key=lambda t: (piece_rank.get(t, 9), t)):
+        img = PIECES.get((ptype, chess.WHITE))
+        if img:
+            icon = pygame.transform.smoothscale(img, (TRAY_ICON, TRAY_ICON))
+            screen.blit(icon, (x, y))
+            x += TRAY_ICON + TRAY_GAP
+
+    # ---- Eliminated BLACK pieces (captured by White) ----
+    # Show under the White board, inside BOTTOM_BANNER (above the hint line)
+    x = LEFT_ANCHOR[0] + COORD_PAD
+    y = TOP_BANNER + H_BOARD + 36  # below the result/turn text
+    for ptype in sorted(captured_black, key=lambda t: (piece_rank.get(t, 9), t)):
+        img = PIECES.get((ptype, chess.BLACK))
+        if img:
+            icon = pygame.transform.smoothscale(img, (TRAY_ICON, TRAY_ICON))
+            screen.blit(icon, (x, y))
+            x += TRAY_ICON + TRAY_GAP
 def draw_board(anchor, flipped=False):
     ax, ay = anchor
     for r in range(BOARD_SIZE):
@@ -476,7 +507,7 @@ def choose_promotion(color):
 # -------------------- Move execution --------------------
 def attempt_move(src_sq, dst_sq):
     """Make a legal move; if promotion is needed, open the picker."""
-    global last_move
+    global last_move, captured_white, captured_black
     move = chess.Move(src_sq, dst_sq)
 
     # If plain move is illegal, but a promotion could make it legal:
@@ -489,6 +520,19 @@ def attempt_move(src_sq, dst_sq):
                 move = chess.Move(src_sq, dst_sq, promotion=promo)
 
     if move in board.legal_moves:
+        if board.is_capture(move):
+            if board.is_en_passant(move):
+                cap_sq = chess.square(chess.square_file(move.to_square),
+                                      chess.square_rank(move.from_square))
+            else:
+                cap_sq = move.to_square
+            cap_piece = board.piece_at(cap_sq)
+            if cap_piece:
+                if cap_piece.color == chess.WHITE:
+                    captured_white.append(cap_piece.piece_type)
+                else:
+                    captured_black.append(cap_piece.piece_type)
+
         board.push(move)
         last_move = move
         return True
@@ -529,6 +573,8 @@ def main():
                     legal_targets = set()
                     game_over = False
                     left_banner = right_banner = ""
+                    captured_white.clear()
+                    captured_black.clear()
                 if e.key == pygame.K_s:
                     show_scoreboard = not show_scoreboard
                     continue
@@ -571,6 +617,7 @@ def main():
         draw_coords(LEFT_ANCHOR, flipped=False)
         draw_coords(RIGHT_ANCHOR, flipped=True)
         draw_banners()
+        draw_captured_trays()
         if show_scoreboard:
             last_close_rect = draw_scoreboard()
 
@@ -580,5 +627,4 @@ def main():
 
 if __name__ == "__main__":
     db_init()
-
     main()
