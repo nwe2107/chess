@@ -31,9 +31,20 @@ OVERLAY_BG = (0, 0, 0, 170)   # translucent black
 PANEL_BG   = (245, 245, 245)
 PANEL_EDGE = (30, 30, 30)
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ASSETS_DIR = os.path.join(HERE, "assets")
-DB_PATH = os.path.join(HERE, "results.db")
+def base_dir():
+    """Where bundled assets live (supports PyInstaller)."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+def runtime_dir():
+    """Where writable files like the SQLite DB should live."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+ASSETS_DIR = os.path.join(base_dir(), "assets")
+DB_PATH = os.path.join(runtime_dir(), "results.db")
 
 # -------------------- Pygame init --------------------
 pygame.init()

@@ -38,6 +38,15 @@ python chess_engine.py
 
 The first run will create `results.db` in the same directory if it does not exist.
 
+## Build a clickable app (no terminal)
+You can package this into a double-clickable app/exe with PyInstaller (lightweight and standalone).
+
+1) Install the packager (in your virtualenv is fine): `pip install pyinstaller`  
+2) From the project root, run one of:
+- macOS: `pyinstaller --windowed --noconsole --add-data "assets:assets" --name ChessDual chess_engine.py`
+- Windows: `pyinstaller --noconsole --add-data "assets;assets" --name ChessDual chess_engine.py`
+3) Grab the build from `dist/` (`ChessDual.app` on macOS or `ChessDual.exe` on Windows) and double-click it. The app writes `results.db` next to the executable to persist scores.
+
 ## Controls and gameplay
 - Click a piece, then click a highlighted destination to move; last move squares stay outlined.
 - `R` resets to a fresh starting position.

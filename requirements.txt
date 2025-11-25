@@ -1,3 +1,13 @@
+altgraph==0.17.5
+certifi==2025.8.3
+charset-normalizer==3.4.3
 chess==1.11.2
+idna==3.10
+macholib==1.16.4
+packaging==25.0
 pygame==2.6.1
+pyinstaller==6.17.0
+pyinstaller-hooks-contrib==2025.10
 python-chess==1.999
+setuptools==80.9.0
+urllib3==2.5.0
